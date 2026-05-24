@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PulseLink Blood Donation</title>
+    <meta
+      name="description"
+      content="A local blood donation data website for saving donor records and checking blood type availability."
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="login-active">
+    <section class="login-page" id="login-page" aria-labelledby="login-title">
+      <div class="login-blood-field" aria-hidden="true">
+        <span class="login-drop login-drop-one"></span>
+        <span class="login-drop login-drop-two"></span>
+        <span class="login-drop login-drop-three"></span>
+        <span class="login-drop login-drop-four"></span>
+        <span class="login-drop login-drop-five"></span>
+        <span class="login-pulse-ring login-ring-one"></span>
+        <span class="login-pulse-ring login-ring-two"></span>
+      </div>
+
+      <div class="login-card">
+        <div class="login-mark" aria-hidden="true">
+          <span></span>
+        </div>
+        <p class="eyebrow">PulseLink Access</p>
+        <h1 id="login-title">Login to blood donation records</h1>
+        <p class="login-copy">
+          Enter your name and phone number to open the local blood availability
+          dashboard on this device.
+        </p>
+
+        <form id="login-form" class="login-form" novalidate>
+          <label>
+            <span>Username</span>
+            <input id="login-name" name="username" type="text" autocomplete="name" placeholder="Your name" required />
+          </label>
+          <label>
+            <span>Phone number</span>
+            <input id="login-phone" name="phone" type="tel" autocomplete="tel" placeholder="Phone number" required />
+          </label>
+          <button type="submit" class="primary-button">Continue</button>
+          <p id="login-message" class="form-message" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <div class="backdrop" id="app-backdrop" aria-hidden="true" hidden>
+      <div class="blood-orb blood-orb-left"></div>
+      <div class="blood-orb blood-orb-right"></div>
+      <div class="drop-trail">
+        <span class="trail-drop trail-drop-one"></span>
+        <span class="trail-drop trail-drop-two"></span>
+        <span class="trail-drop trail-drop-three"></span>
+      </div>
+    </div>
+
+    <div class="page-shell" id="app-shell" hidden>
+      <header class="site-top">
+        <a class="brand" href="#top">
+          <span class="brand-icon"></span>
+          <span class="brand-name">PulseLink</span>
+        </a>
+        <div class="signed-in-card" aria-live="polite">
+          <span id="signed-in-text">Signed in</span>
+          <button id="logout-button" type="button" class="logout-button">Logout</button>
+        </div>
+      </header>
+
+      <section class="hero" id="top">
+        <div class="hero-copy panel">
+          <p class="eyebrow">Community Blood Donation Network</p>
+          <h1>One drop can travel farther than fear.</h1>
+          <p class="hero-text">
+            Build a clean local donor directory, check blood availability in
+            seconds, and keep urgent information visible when every minute
+            matters.
+          </p>
+
+          <div class="line-strip">
+            <span>One donor. Three lives. Zero time to waste.</span>
+            <span>Real people. Real blood groups. Real local access.</span>
+          </div>
+
+          <div class="hero-actions">
+            <a class="action-pill action-primary tab-link" href="#donate-panel" data-open-tab="donate">Add donor</a>
+            <a class="action-pill action-secondary tab-link" href="#need-panel" data-open-tab="need">Check blood</a>
+          </div>
+        </div>
+
+        <aside class="hero-visual panel">
+          <div class="hero-drop-wrap" aria-hidden="true">
+            <svg class="hero-drop" viewBox="0 0 220 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M110 12C110 12 36 96 36 150C36 191.974 68.0264 226 110 226C151.974 226 184 191.974 184 150C184 96 110 12 110 12Z"
+                fill="url(#dropGradient)"
+              />
+              <path
+                d="M110 38C110 38 59 112 59 148C59 176.719 81.2812 199 110 199C138.719 199 161 176.719 161 148C161 112 110 38 110 38Z"
+                fill="rgba(255,255,255,0.16)"
+              />
+              <defs>
+                <linearGradient id="dropGradient" x1="40" y1="40" x2="178" y2="220" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FF8B87" />
+                  <stop offset="0.45" stop-color="#D5332E" />
+                  <stop offset="1" stop-color="#7B1714" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          <div class="hero-stat-grid">
+            <article class="hero-stat">
+              <span id="total-donors">0</span>
+              <p>donors stored on this device</p>
+            </article>
+            <article class="hero-stat">
+              <span id="tracked-types">8</span>
+              <p>blood groups searchable instantly</p>
+            </article>
+          </div>
+
+          <blockquote class="hero-quote">
+            “The right donor record at the right moment can change the whole
+            ending.”
+          </blockquote>
+        </aside>
+      </section>
+
+      <section class="promise-grid">
+        <article class="promise-card">
+          <p class="section-label">Fast</p>
+          <h2>Search urgency without the chaos.</h2>
+          <p class="section-text">
+            The Need Blood tab turns a blood type into a clear answer:
+            available or not available.
+          </p>
+        </article>
+        <article class="promise-card">
+          <p class="section-label">Human</p>
+          <h2>People first, not spreadsheet first.</h2>
+          <p class="section-text">
+            Save names, addresses, cities, and contact numbers in a format that
+            is actually usable during an emergency.
+          </p>
+        </article>
+        <article class="promise-card accent-card">
+          <p class="section-label">Catchy line</p>
+          <h2>Give blood. Give time. Give someone another morning.</h2>
+        </article>
+      </section>
+
+      <main class="app-grid">
+        <section class="panel panel-tabs">
+          <div class="tabs" role="tablist" aria-label="Blood donation sections">
+            <button
+              class="tab-button active"
+              id="donate-tab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="donate-panel"
+              data-tab="donate"
+            >
+              Donation Section
+            </button>
+            <button
+              class="tab-button"
+              id="need-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="need-panel"
+              data-tab="need"
+            >
+              Blood Needed Section
+            </button>
+            <button
+              class="tab-button"
+              id="hospital-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="hospital-panel"
+              data-tab="hospital"
+            >
+              Hospital Section
+            </button>
+          </div>
+
+          <div class="section-banner-grid" aria-hidden="true">
+            <article class="section-banner">
+              <p class="section-label">Section 01</p>
+              <h3>Donation Section</h3>
+              <p>Register blood donors with name, blood type, address, city, and phone.</p>
+            </article>
+            <article class="section-banner">
+              <p class="section-label">Section 02</p>
+              <h3>Blood Needed Section</h3>
+              <p>Search blood availability and instantly see whether matching donors exist.</p>
+            </article>
+            <article class="section-banner">
+              <p class="section-label">Section 03</p>
+              <h3>Hospital Section</h3>
+              <p>Hospitals can add blood groups they currently have in local inventory.</p>
+            </article>
+          </div>
+
+          <section
+            class="tab-panel active"
+            id="donate-panel"
+            role="tabpanel"
+            aria-labelledby="donate-tab"
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="section-label">Donor registration</p>
+                <h2>Donation Section</h2>
+              </div>
+              <p class="section-text">
+                Add a donor who can answer an emergency and keep the record
+                available in this browser for future checks.
+              </p>
+            </div>
+
+            <form id="donor-form" class="donor-form" novalidate>
+              <div class="field-grid">
+                <label>
+                  <span>Name</span>
+                  <input id="name" name="name" type="text" placeholder="Full name" required />
+                </label>
+                <label>
+                  <span>Blood type</span>
+                  <select id="bloodType" name="bloodType" required>
+                    <option value="">Select blood type</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Phone</span>
+                  <input id="phone" name="phone" type="tel" placeholder="Phone number" required />
+                </label>
+                <label>
+                  <span>City</span>
+                  <input id="city" name="city" type="text" placeholder="City" required />
+                </label>
+              </div>
+
+              <label class="field-block">
+                <span>Address</span>
+                <textarea
+                  id="address"
+                  name="address"
+                  rows="4"
+                  placeholder="Street, area, landmark"
+                  required
+                ></textarea>
+              </label>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button">Save donor</button>
+                <button type="reset" class="ghost-button">Clear form</button>
+              </div>
+              <p id="form-message" class="form-message" aria-live="polite"></p>
+            </form>
+          </section>
+
+          <section
+            class="tab-panel"
+            id="need-panel"
+            role="tabpanel"
+            aria-labelledby="need-tab"
+            hidden
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="section-label">Blood availability</p>
+                <h2>Blood Needed Section</h2>
+              </div>
+              <p class="section-text">
+                Choose a blood type and check all saved donor records on this
+                device before the pressure rises.
+              </p>
+            </div>
+
+            <form id="search-form" class="search-form" novalidate>
+              <label>
+                <span>Blood type needed</span>
+                <select id="searchBloodType" name="searchBloodType" required>
+                  <option value="">Choose blood type</option>
+                </select>
+              </label>
+              <button type="submit" class="primary-button">Check availability</button>
+            </form>
+
+            <div class="gps-actions">
+              <button id="location-button" type="button" class="ghost-button">
+                Use my location
+              </button>
+              <p id="location-message" class="location-message" aria-live="polite">
+                GPS can sort Belagavi hospitals by nearest distance.
+              </p>
+            </div>
+
+            <div id="availability-card" class="availability-card neutral">
+              <p class="section-label">Status</p>
+              <h3>Select a blood type to begin</h3>
+              <p class="section-text">
+                The app will show demo hospital inventory and matching donor
+                records currently saved in this browser.
+              </p>
+            </div>
+          </section>
+
+          <section
+            class="tab-panel"
+            id="hospital-panel"
+            role="tabpanel"
+            aria-labelledby="hospital-tab"
+            hidden
+          >
+            <div class="panel-heading">
+              <div>
+                <p class="section-label">Hospital inventory</p>
+                <h2>Hospital Section</h2>
+              </div>
+              <p class="section-text">
+                Add blood groups available at Belagavi hospitals. These local
+                entries are used by the Blood Needed search.
+              </p>
+            </div>
+
+            <form id="hospital-form" class="donor-form" novalidate>
+              <div class="field-grid">
+                <label>
+                  <span>Hospital name</span>
+                  <select id="hospitalName" name="hospitalName" required>
+                    <option value="">Select hospital</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Blood type available</span>
+                  <select id="hospitalBloodType" name="hospitalBloodType" required>
+                    <option value="">Select blood type</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button">Add blood</button>
+                <button type="reset" class="ghost-button">Clear form</button>
+              </div>
+              <p id="hospital-message" class="form-message" aria-live="polite"></p>
+            </form>
+
+            <div class="result-section">
+              <h4>Current hospital blood inventory</h4>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hospital</th>
+                      <th>Phone</th>
+                      <th>Address</th>
+                      <th>Blood available</th>
+                      <th>Update</th>
+                    </tr>
+                  </thead>
+                  <tbody id="hospital-table-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="panel panel-list">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">Saved records</p>
+              <h2>Your local donor directory</h2>
+            </div>
+            <p class="section-text">
+              Every saved donor appears here and can also be matched from the
+              Need Blood tab.
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Phone</th>
+                  <th>City</th>
+                  <th>Address</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody id="donor-table-body"></tbody>
+            </table>
+          </div>
+          <div id="empty-state" class="empty-state">
+            <h3>No donors saved yet</h3>
+            <p>Add a donor from the Donate Blood tab to start building the directory.</p>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
