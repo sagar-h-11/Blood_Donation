@@ -167,6 +167,11 @@ logoutButton.addEventListener("click", () => {
 donorForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
+  if (!currentUser?.phoneKey) {
+    showFormMessage("Please sign in before saving a donor record.", "error");
+    return;
+  }
+
   const formData = new FormData(donorForm);
   const donor = {
     name: normalizeText(formData.get("name")),
@@ -185,6 +190,9 @@ donorForm.addEventListener("submit", (event) => {
     ...donor,
     id: createId(),
     createdAt: new Date().toISOString(),
+    ownerName: currentUser.username,
+    ownerPhone: currentUser.phone,
+    ownerPhoneKey: currentUser.phoneKey,
   });
 
   if (!persistDonors()) {
@@ -428,6 +436,9 @@ function loadDonors() {
         city: normalizeText(donor?.city),
         address: normalizeText(donor?.address),
         createdAt: normalizeText(donor?.createdAt),
+        ownerName: normalizeText(donor?.ownerName),
+        ownerPhone: normalizeText(donor?.ownerPhone),
+        ownerPhoneKey: normalizePhone(donor?.ownerPhoneKey || donor?.ownerPhone),
       }))
       .filter((donor) =>
         donor.name &&
@@ -841,17 +852,33 @@ function buildDonorDeleteCell(donor) {
     `;
   }
 
-  return `<span class="locked-delete">Only donor can delete</span>`;
+  return `<span class="locked-delete">Only this donor can delete</span>`;
 }
 
 function canDeleteDonor(donor) {
-  return Boolean(currentUser?.phoneKey && phoneKeysMatch(normalizePhone(donor.phone), currentUser.phoneKey));
+  if (!currentUser?.phoneKey) {
+    return false;
+  }
+
+  const ownerPhoneKey = getDonorOwnerPhoneKey(donor);
+  return phoneKeysMatch(ownerPhoneKey, currentUser.phoneKey);
+}
+
+function getDonorOwnerPhoneKey(donor) {
+  const savedOwnerPhoneKey = normalizePhone(donor?.ownerPhoneKey);
+
+  if (savedOwnerPhoneKey) {
+    return savedOwnerPhoneKey;
+  }
+
+  return normalizePhone(donor?.phone);
 }
 
 function deleteDonor(donorId) {
   const donor = donors.find((entry) => entry.id === donorId);
 
   if (!donor || !canDeleteDonor(donor)) {
+    showFormMessage("You can only delete the donor record registered with your phone number.", "error");
     return;
   }
 
