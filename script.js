@@ -2,6 +2,8 @@ const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const STORAGE_KEY = "pulse-link-donors";
 const HOSPITAL_STORAGE_KEY = "pulse-link-hospital-inventory";
 const USER_STORAGE_KEY = "pulse-link-user";
+const DATA_RESET_KEY = "pulse-link-data-reset-version";
+const DATA_RESET_VERSION = "2026-06-05-clear-existing-data";
 const HOSPITALS = [
   {
     name: "KLES Dr. Prabhakar Kore Hospital & MRC",
@@ -68,18 +70,18 @@ const formMessage = document.querySelector("#form-message");
 const hospitalMessage = document.querySelector("#hospital-message");
 const donorTableBody = document.querySelector("#donor-table-body");
 const hospitalTableBody = document.querySelector("#hospital-table-body");
+const bloodChart = document.querySelector("#blood-chart");
 const emptyState = document.querySelector("#empty-state");
 const totalDonors = document.querySelector("#total-donors");
 const availabilityCard = document.querySelector("#availability-card");
 const trackedTypes = document.querySelector("#tracked-types");
 const donatePanel = document.querySelector("#donate-panel");
-const needPanel = document.querySelector("#need-panel");
-const hospitalPanel = document.querySelector("#hospital-panel");
-const tabs = document.querySelectorAll(".tab-button");
 const bloodTypeSelect = document.querySelector("#bloodType");
 const searchBloodTypeSelect = document.querySelector("#searchBloodType");
 const hospitalNameSelect = document.querySelector("#hospitalName");
 const hospitalBloodTypeSelect = document.querySelector("#hospitalBloodType");
+const donationDateInput = document.querySelector("#donationDate");
+const donorSubmitButton = document.querySelector("#donor-submit-button");
 const locationButton = document.querySelector("#location-button");
 const locationMessage = document.querySelector("#location-message");
 const tabLinks = document.querySelectorAll("[data-open-tab]");
@@ -96,22 +98,22 @@ let donors = loadDonors();
 let hospitalInventory = loadHospitalInventory();
 let lastSearchType = "";
 let userLocation = null;
+let editingDonorId = "";
+let suppressNextResetMessage = false;
 
+clearExistingSavedDataOnce();
 applyAuthState();
 populateBloodTypeOptions();
 populateHospitalOptions();
+setDefaultDonationDate();
 renderDonorTable();
 renderHospitalTable();
+renderBloodChart();
 updateHeroStats();
-
-tabs.forEach((button) => {
-  button.addEventListener("click", () => activateTab(button.dataset.tab));
-});
 
 tabLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    activateTab(link.dataset.openTab);
     document.querySelector(link.getAttribute("href"))?.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -179,10 +181,30 @@ donorForm.addEventListener("submit", (event) => {
     phone: normalizeText(formData.get("phone")),
     city: normalizeText(formData.get("city")),
     address: normalizeText(formData.get("address")),
+    donationDate: normalizeDateValue(formData.get("donationDate")),
   };
 
   if (Object.values(donor).some((value) => !value)) {
     showFormMessage("Please complete all fields before saving a donor.", "error");
+    return;
+  }
+
+  if (!isValidDateValue(donor.donationDate)) {
+    showFormMessage("Please enter a valid donation date.", "error");
+    return;
+  }
+
+  const gapCheck = getDonationGapConflict(donor.phone, donor.donationDate, editingDonorId);
+  if (gapCheck) {
+    showFormMessage(
+      `${donor.name} can donate again from ${formatDisplayDate(gapCheck.nextEligibleDate)}. Please keep a 3-month gap between donations.`,
+      "error",
+    );
+    return;
+  }
+
+  if (editingDonorId) {
+    updateDonorRecord(donor);
     return;
   }
 
@@ -201,8 +223,9 @@ donorForm.addEventListener("submit", (event) => {
     return;
   }
 
-  donorForm.reset();
+  resetDonorFormState();
   renderDonorTable();
+  renderBloodChart();
   updateHeroStats();
   showFormMessage(`Saved ${donor.name} as a ${donor.bloodType} donor.`, "success");
 
@@ -213,6 +236,12 @@ donorForm.addEventListener("submit", (event) => {
 
 donorForm.addEventListener("reset", () => {
   window.setTimeout(() => {
+    resetDonorFormState({ resetFields: false });
+    if (suppressNextResetMessage) {
+      suppressNextResetMessage = false;
+      return;
+    }
+
     showFormMessage("", "");
   }, 0);
 });
@@ -289,21 +318,29 @@ hospitalTableBody.addEventListener("click", (event) => {
 });
 
 donorTableBody.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-delete-donor]");
-  if (!button) {
+  const deleteButton = event.target.closest("[data-delete-donor]");
+  if (deleteButton) {
+    deleteDonor(deleteButton.dataset.donorId);
     return;
   }
 
-  deleteDonor(button.dataset.donorId);
+  const editButton = event.target.closest("[data-edit-donor]");
+  if (editButton) {
+    startEditingDonor(editButton.dataset.donorId);
+  }
 });
 
 availabilityCard.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-delete-donor]");
-  if (!button) {
+  const deleteButton = event.target.closest("[data-delete-donor]");
+  if (deleteButton) {
+    deleteDonor(deleteButton.dataset.donorId);
     return;
   }
 
-  deleteDonor(button.dataset.donorId);
+  const editButton = event.target.closest("[data-edit-donor]");
+  if (editButton) {
+    startEditingDonor(editButton.dataset.donorId);
+  }
 });
 
 hospitalForm.addEventListener("reset", () => {
@@ -365,26 +402,6 @@ locationButton.addEventListener("click", () => {
   );
 });
 
-function activateTab(tabName) {
-  const targetTab = ["donate", "need", "hospital"].includes(tabName) ? tabName : "donate";
-
-  tabs.forEach((tab) => {
-    const active = tab.dataset.tab === targetTab;
-    tab.classList.toggle("active", active);
-    tab.setAttribute("aria-selected", String(active));
-  });
-
-  [
-    { name: "donate", panel: donatePanel },
-    { name: "need", panel: needPanel },
-    { name: "hospital", panel: hospitalPanel },
-  ].forEach(({ name, panel }) => {
-    const active = name === targetTab;
-    panel.classList.toggle("active", active);
-    panel.hidden = !active;
-  });
-}
-
 function populateBloodTypeOptions() {
   trackedTypes.textContent = String(BLOOD_TYPES.length);
 
@@ -435,6 +452,7 @@ function loadDonors() {
         phone: normalizeText(donor?.phone),
         city: normalizeText(donor?.city),
         address: normalizeText(donor?.address),
+        donationDate: normalizeDateValue(donor?.donationDate || donor?.createdAt),
         createdAt: normalizeText(donor?.createdAt),
         ownerName: normalizeText(donor?.ownerName),
         ownerPhone: normalizeText(donor?.ownerPhone),
@@ -445,11 +463,26 @@ function loadDonors() {
         BLOOD_TYPES.includes(donor.bloodType) &&
         donor.phone &&
         donor.city &&
-        donor.address,
+        donor.address &&
+        donor.donationDate,
       );
   } catch {
     return [];
   }
+}
+
+function clearExistingSavedDataOnce() {
+  if (localStorage.getItem(DATA_RESET_KEY) === DATA_RESET_VERSION) {
+    return;
+  }
+
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(HOSPITAL_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+  localStorage.setItem(DATA_RESET_KEY, DATA_RESET_VERSION);
+  currentUser = null;
+  donors = [];
+  hospitalInventory = loadHospitalInventory();
 }
 
 function loadCurrentUser() {
@@ -562,8 +595,9 @@ function renderDonorTable() {
       <td><strong>${escapeHtml(donor.bloodType)}</strong></td>
       <td>${escapeHtml(donor.phone)}</td>
       <td>${escapeHtml(donor.city)}</td>
+      <td>${escapeHtml(formatDisplayDate(donor.donationDate))}</td>
       <td>${escapeHtml(donor.address)}</td>
-      <td>${buildDonorDeleteCell(donor)}</td>
+      <td>${buildDonorActionCell(donor)}</td>
     `;
     donorTableBody.appendChild(row);
   });
@@ -640,8 +674,9 @@ function buildMatchList(matches) {
             <th>Type</th>
             <th>Phone</th>
             <th>City</th>
+            <th>Donation date</th>
             <th>Address</th>
-            <th>Delete</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -653,8 +688,9 @@ function buildMatchList(matches) {
                   <td><strong>${escapeHtml(donor.bloodType)}</strong></td>
                   <td>${escapeHtml(donor.phone)}</td>
                   <td>${escapeHtml(donor.city)}</td>
+                  <td>${escapeHtml(formatDisplayDate(donor.donationDate))}</td>
                   <td>${escapeHtml(donor.address)}</td>
-                  <td>${buildDonorDeleteCell(donor)}</td>
+                  <td>${buildDonorActionCell(donor)}</td>
                 </tr>
               `,
             )
@@ -780,6 +816,33 @@ function updateHeroStats() {
   totalDonors.textContent = String(donors.length);
 }
 
+function renderBloodChart() {
+  const counts = countDonorsByBloodType();
+  const maxCount = Math.max(...Object.values(counts), 1);
+
+  bloodChart.innerHTML = BLOOD_TYPES.map((type) => {
+    const count = counts[type];
+    const height = Math.max((count / maxCount) * 100, count ? 12 : 4);
+
+    return `
+      <div class="chart-item">
+        <div class="chart-track" aria-hidden="true">
+          <span class="chart-bar" style="height: ${height}%"></span>
+        </div>
+        <strong>${escapeHtml(type)}</strong>
+        <span>${count}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function countDonorsByBloodType() {
+  return BLOOD_TYPES.reduce((counts, type) => {
+    counts[type] = donors.filter((donor) => donor.bloodType === type).length;
+    return counts;
+  }, {});
+}
+
 function showFormMessage(message, tone) {
   formMessage.textContent = message;
   formMessage.className = "form-message";
@@ -837,11 +900,20 @@ function buildRemoveButtons(hospital) {
     .join("");
 }
 
-function buildDonorDeleteCell(donor) {
-  if (canDeleteDonor(donor)) {
+function buildDonorActionCell(donor) {
+  if (canManageDonor(donor)) {
     return `
       <button
-        class="delete-donor-button"
+        class="donor-action-button edit-donor-button"
+        type="button"
+        data-edit-donor
+        data-donor-id="${escapeHtml(donor.id)}"
+        aria-label="Edit donor ${escapeHtml(donor.name)}"
+      >
+        Edit
+      </button>
+      <button
+        class="donor-action-button delete-donor-button"
         type="button"
         data-delete-donor
         data-donor-id="${escapeHtml(donor.id)}"
@@ -852,16 +924,81 @@ function buildDonorDeleteCell(donor) {
     `;
   }
 
-  return `<span class="locked-delete">Only this donor can delete</span>`;
+  return `<span class="locked-delete">Only this donor can edit or delete</span>`;
 }
 
 function canDeleteDonor(donor) {
+  return canManageDonor(donor);
+}
+
+function canManageDonor(donor) {
   if (!currentUser?.phoneKey) {
     return false;
   }
 
   const ownerPhoneKey = getDonorOwnerPhoneKey(donor);
   return phoneKeysMatch(ownerPhoneKey, currentUser.phoneKey);
+}
+
+function startEditingDonor(donorId) {
+  const donor = donors.find((entry) => entry.id === donorId);
+
+  if (!donor || !canManageDonor(donor)) {
+    showFormMessage("You can only edit the donor record registered with your phone number.", "error");
+    return;
+  }
+
+  editingDonorId = donor.id;
+  donorForm.elements.name.value = donor.name;
+  donorForm.elements.bloodType.value = donor.bloodType;
+  donorForm.elements.phone.value = donor.phone;
+  donorForm.elements.city.value = donor.city;
+  donorForm.elements.donationDate.value = donor.donationDate;
+  donorForm.elements.address.value = donor.address;
+  donorSubmitButton.textContent = "Update donor";
+  showFormMessage(`Editing ${donor.name}'s donor record.`, "success");
+  donatePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function updateDonorRecord(updatedDonor) {
+  const donorIndex = donors.findIndex((entry) => entry.id === editingDonorId);
+
+  if (donorIndex === -1 || !canManageDonor(donors[donorIndex])) {
+    showFormMessage("This donor record can no longer be edited.", "error");
+    return;
+  }
+
+  const previousDonors = [...donors];
+  donors[donorIndex] = {
+    ...donors[donorIndex],
+    ...updatedDonor,
+  };
+
+  if (!persistDonors()) {
+    donors = previousDonors;
+    showFormMessage("This browser could not update the donor. Please try again.", "error");
+    return;
+  }
+
+  resetDonorFormState();
+  renderDonorTable();
+  renderBloodChart();
+  updateHeroStats();
+  showFormMessage(`Updated ${updatedDonor.name}'s donor record.`, "success");
+
+  if (lastSearchType) {
+    renderAvailability(lastSearchType);
+  }
+}
+
+function resetDonorFormState({ resetFields = true } = {}) {
+  editingDonorId = "";
+  if (resetFields) {
+    suppressNextResetMessage = true;
+    donorForm.reset();
+  }
+  setDefaultDonationDate();
+  donorSubmitButton.textContent = "Save donor";
 }
 
 function getDonorOwnerPhoneKey(donor) {
@@ -896,6 +1033,7 @@ function deleteDonor(donorId) {
   }
 
   renderDonorTable();
+  renderBloodChart();
   updateHeroStats();
   showFormMessage(`Deleted ${donor.name}'s donor record.`, "success");
 
@@ -931,6 +1069,96 @@ function createId() {
   }
 
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function setDefaultDonationDate() {
+  donationDateInput.value = getDateInputValue(new Date());
+}
+
+function getDonationGapConflict(phone, donationDate, ignoredDonorId = "") {
+  const phoneKey = normalizePhone(phone);
+  const submittedDate = parseDateValue(donationDate);
+
+  if (!phoneKey || !submittedDate) {
+    return null;
+  }
+
+  const latestDonation = donors
+    .filter((donor) => donor.id !== ignoredDonorId && phoneKeysMatch(normalizePhone(donor.phone), phoneKey))
+    .map((donor) => parseDateValue(donor.donationDate))
+    .filter(Boolean)
+    .sort((first, second) => second.getTime() - first.getTime())[0];
+
+  if (!latestDonation) {
+    return null;
+  }
+
+  const nextEligibleDate = addMonths(latestDonation, 3);
+
+  if (submittedDate.getTime() < nextEligibleDate.getTime()) {
+    return { latestDonation, nextEligibleDate };
+  }
+
+  return null;
+}
+
+function addMonths(date, months) {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + months);
+  return nextDate;
+}
+
+function normalizeDateValue(value) {
+  const text = normalizeText(value);
+
+  if (!text) {
+    return "";
+  }
+
+  const date = parseDateValue(text);
+  return date ? getDateInputValue(date) : "";
+}
+
+function parseDateValue(value) {
+  const text = normalizeText(value);
+
+  if (!text) {
+    return null;
+  }
+
+  const dateOnly = text.includes("T") ? text.split("T")[0] : text;
+  const date = new Date(`${dateOnly}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function isValidDateValue(value) {
+  return Boolean(parseDateValue(value));
+}
+
+function getDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value) {
+  const date = parseDateValue(value);
+
+  if (!date) {
+    return "Not recorded";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function normalizeText(value) {

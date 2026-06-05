@@ -135,7 +135,7 @@
           <p class="section-label">Fast</p>
           <h2>Search urgency without the chaos.</h2>
           <p class="section-text">
-            The Need Blood tab turns a blood type into a clear answer:
+            The Blood Needed section turns a blood type into a clear answer:
             available or not available.
           </p>
         </article>
@@ -153,42 +153,25 @@
         </article>
       </section>
 
-      <main class="app-grid">
-        <section class="panel panel-tabs">
-          <div class="tabs" role="tablist" aria-label="Blood donation sections">
-            <button
-              class="tab-button active"
-              id="donate-tab"
-              type="button"
-              role="tab"
-              aria-selected="true"
-              aria-controls="donate-panel"
-              data-tab="donate"
-            >
-              Donation Section
-            </button>
-            <button
-              class="tab-button"
-              id="need-tab"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="need-panel"
-              data-tab="need"
-            >
-              Blood Needed Section
-            </button>
-            <button
-              class="tab-button"
-              id="hospital-tab"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="hospital-panel"
-              data-tab="hospital"
-            >
-              Hospital Section
-            </button>
+      <main class="scroll-sections">
+        <nav class="section-nav" aria-label="Blood donation sections">
+          <a class="section-nav-link" href="#donate-panel">Donation</a>
+          <a class="section-nav-link" href="#need-panel">Blood Needed</a>
+          <a class="section-nav-link" href="#hospital-panel">Hospitals</a>
+          <a class="section-nav-link" href="#chart-panel">Blood Groups</a>
+          <a class="section-nav-link" href="#donor-directory">Donors</a>
+        </nav>
+
+        <section class="panel panel-sections">
+          <div class="section-intro">
+            <div>
+              <p class="section-label">Scrolling records</p>
+              <h2>Blood donation workspace</h2>
+            </div>
+            <p class="section-text">
+              Add donors, check blood availability, update hospital blood groups,
+              and review blood group counts from one scrolling page.
+            </p>
           </div>
 
           <div class="section-banner-grid" aria-hidden="true">
@@ -209,12 +192,7 @@
             </article>
           </div>
 
-          <section
-            class="tab-panel active"
-            id="donate-panel"
-            role="tabpanel"
-            aria-labelledby="donate-tab"
-          >
+          <section class="stacked-panel" id="donate-panel">
             <div class="panel-heading">
               <div>
                 <p class="section-label">Donor registration</p>
@@ -246,6 +224,10 @@
                   <span>City</span>
                   <input id="city" name="city" type="text" placeholder="City" required />
                 </label>
+                <label>
+                  <span>Donation date</span>
+                  <input id="donationDate" name="donationDate" type="date" required />
+                </label>
               </div>
 
               <label class="field-block">
@@ -260,20 +242,14 @@
               </label>
 
               <div class="form-actions">
-                <button type="submit" class="primary-button">Save donor</button>
+                <button id="donor-submit-button" type="submit" class="primary-button">Save donor</button>
                 <button type="reset" class="ghost-button">Clear form</button>
               </div>
               <p id="form-message" class="form-message" aria-live="polite"></p>
             </form>
           </section>
 
-          <section
-            class="tab-panel"
-            id="need-panel"
-            role="tabpanel"
-            aria-labelledby="need-tab"
-            hidden
-          >
+          <section class="stacked-panel" id="need-panel">
             <div class="panel-heading">
               <div>
                 <p class="section-label">Blood availability</p>
@@ -314,13 +290,7 @@
             </div>
           </section>
 
-          <section
-            class="tab-panel"
-            id="hospital-panel"
-            role="tabpanel"
-            aria-labelledby="hospital-tab"
-            hidden
-          >
+          <section class="stacked-panel" id="hospital-panel">
             <div class="panel-heading">
               <div>
                 <p class="section-label">Hospital inventory</p>
@@ -373,9 +343,23 @@
               </div>
             </div>
           </section>
+
+          <section class="stacked-panel" id="chart-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-label">Blood group chart</p>
+                <h2>Saved donors by blood group</h2>
+              </div>
+              <p class="section-text">
+                The bar graph updates whenever donor records are added, edited,
+                or deleted.
+              </p>
+            </div>
+            <div id="blood-chart" class="blood-chart" aria-live="polite"></div>
+          </section>
         </section>
 
-        <aside class="panel panel-list">
+        <aside class="panel panel-list" id="donor-directory">
           <div class="panel-heading">
             <div>
               <p class="section-label">Saved records</p>
@@ -383,7 +367,7 @@
             </div>
             <p class="section-text">
               Every saved donor appears here and can also be matched from the
-              Need Blood tab.
+              Blood Needed section.
             </p>
           </div>
 
@@ -395,8 +379,9 @@
                   <th>Type</th>
                   <th>Phone</th>
                   <th>City</th>
+                  <th>Donation date</th>
                   <th>Address</th>
-                  <th>Delete</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="donor-table-body"></tbody>
