@@ -462,10 +462,92 @@ a {
 }
 
 .hero,
+.intro-page,
 .scroll-sections,
 .promise-grid {
   display: grid;
   gap: 24px;
+}
+
+.intro-page {
+  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+  align-items: stretch;
+  min-height: calc(100vh - 112px);
+  margin-bottom: 24px;
+  scroll-margin-top: 24px;
+}
+
+.intro-copy,
+.intro-feature {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+}
+
+.intro-copy {
+  display: grid;
+  align-content: center;
+  padding: 36px;
+  border-radius: 28px;
+}
+
+.intro-copy h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.8rem, 7vw, 5rem);
+  line-height: 0.96;
+}
+
+.intro-text {
+  max-width: 58ch;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.intro-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.intro-feature {
+  display: grid;
+  align-content: space-between;
+  min-height: 210px;
+  padding: 22px;
+  border-radius: 24px;
+}
+
+.intro-number {
+  width: fit-content;
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: var(--brand-deep);
+  background: rgba(255, 232, 224, 0.9);
+  font-weight: 900;
+}
+
+.intro-feature h2 {
+  margin: 22px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.55rem;
+}
+
+.intro-feature p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .hero {
@@ -1077,6 +1159,7 @@ tbody tr:hover {
 
 @media (max-width: 1040px) {
   .hero,
+  .intro-page,
   .promise-grid {
     grid-template-columns: 1fr;
   }
@@ -1112,9 +1195,27 @@ tbody tr:hover {
 
   .panel,
   .promise-card,
+  .intro-copy,
+  .intro-feature,
   .hero-copy,
   .hero-visual {
     border-radius: 22px;
+  }
+
+  .intro-page {
+    min-height: auto;
+  }
+
+  .intro-copy {
+    padding: 26px;
+  }
+
+  .intro-copy h1 {
+    font-size: clamp(2.3rem, 12vw, 3.7rem);
+  }
+
+  .intro-feature-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero h1 {
