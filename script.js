@@ -1,9 +1,5 @@
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-const STORAGE_KEY = "pulse-link-donors";
-const HOSPITAL_STORAGE_KEY = "pulse-link-hospital-inventory";
 const USER_STORAGE_KEY = "pulse-link-user";
-const DATA_RESET_KEY = "pulse-link-data-reset-version";
-const DATA_RESET_VERSION = "2026-06-05-clear-existing-data";
 const HOSPITALS = [
   {
     name: "KLES Dr. Prabhakar Kore Hospital & MRC",
@@ -62,6 +58,7 @@ const HOSPITALS = [
     availableTypes: ["A+", "A-", "B-", "AB+", "O-"],
   },
 ];
+const API_ERROR_MESSAGE = "The backend is not available right now. Check the database setup and try again.";
 
 const donorForm = document.querySelector("#donor-form");
 const hospitalForm = document.querySelector("#hospital-form");
@@ -94,14 +91,13 @@ const signedInText = document.querySelector("#signed-in-text");
 const logoutButton = document.querySelector("#logout-button");
 
 let currentUser = loadCurrentUser();
-let donors = loadDonors();
-let hospitalInventory = loadHospitalInventory();
+let donors = [];
+let hospitalInventory = loadDefaultHospitalInventory();
 let lastSearchType = "";
 let userLocation = null;
 let editingDonorId = "";
 let suppressNextResetMessage = false;
 
-clearExistingSavedDataOnce();
 applyAuthState();
 populateBloodTypeOptions();
 populateHospitalOptions();
@@ -110,6 +106,7 @@ renderDonorTable();
 renderHospitalTable();
 renderBloodChart();
 updateHeroStats();
+initializeBackendData();
 
 tabLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
@@ -166,7 +163,7 @@ logoutButton.addEventListener("click", () => {
   showLoginMessage("", "");
 });
 
-donorForm.addEventListener("submit", (event) => {
+donorForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   if (!currentUser?.phoneKey) {
@@ -204,24 +201,29 @@ donorForm.addEventListener("submit", (event) => {
   }
 
   if (editingDonorId) {
-    updateDonorRecord(donor);
+    await updateDonorRecord(donor);
     return;
   }
 
-  donors.unshift({
-    ...donor,
-    id: createId(),
-    createdAt: new Date().toISOString(),
-    ownerName: currentUser.username,
-    ownerPhone: currentUser.phone,
-    ownerPhoneKey: currentUser.phoneKey,
-  });
+  donorSubmitButton.disabled = true;
 
-  if (!persistDonors()) {
-    showFormMessage("This browser could not save the donor. Please try again.", "error");
-    donors.shift();
+  try {
+    const result = await apiRequest("/api/donors", {
+      method: "POST",
+      body: {
+        ...donor,
+        user: currentUser,
+      },
+    });
+
+    donors.unshift(result.donor);
+  } catch (error) {
+    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+    donorSubmitButton.disabled = false;
     return;
   }
+
+  donorSubmitButton.disabled = false;
 
   resetDonorFormState();
   renderDonorTable();
@@ -246,7 +248,7 @@ donorForm.addEventListener("reset", () => {
   }, 0);
 });
 
-hospitalForm.addEventListener("submit", (event) => {
+hospitalForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const hospitalName = normalizeText(hospitalNameSelect.value);
@@ -268,12 +270,18 @@ hospitalForm.addEventListener("submit", (event) => {
     return;
   }
 
-  hospital.availableTypes.push(bloodType);
-  hospital.availableTypes.sort((first, second) => BLOOD_TYPES.indexOf(first) - BLOOD_TYPES.indexOf(second));
-
-  if (!persistHospitalInventory()) {
-    hospital.availableTypes = hospital.availableTypes.filter((type) => type !== bloodType);
-    showHospitalMessage("This browser could not save the hospital update. Please try again.", "error");
+  try {
+    const result = await apiRequest("/api/hospitals", {
+      method: "PATCH",
+      body: {
+        hospitalName,
+        bloodType,
+        action: "add",
+      },
+    });
+    hospitalInventory = result.hospitals;
+  } catch (error) {
+    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
     return;
   }
 
@@ -286,7 +294,7 @@ hospitalForm.addEventListener("submit", (event) => {
   }
 });
 
-hospitalTableBody.addEventListener("click", (event) => {
+hospitalTableBody.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-remove-blood]");
   if (!button) {
     return;
@@ -300,12 +308,21 @@ hospitalTableBody.addEventListener("click", (event) => {
     return;
   }
 
-  const previousTypes = [...hospital.availableTypes];
-  hospital.availableTypes = hospital.availableTypes.filter((type) => type !== bloodType);
+  button.disabled = true;
 
-  if (!persistHospitalInventory()) {
-    hospital.availableTypes = previousTypes;
-    showHospitalMessage("This browser could not remove the blood type. Please try again.", "error");
+  try {
+    const result = await apiRequest("/api/hospitals", {
+      method: "PATCH",
+      body: {
+        hospitalName,
+        bloodType,
+        action: "remove",
+      },
+    });
+    hospitalInventory = result.hospitals;
+  } catch (error) {
+    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
+    button.disabled = false;
     return;
   }
 
@@ -432,59 +449,6 @@ function populateHospitalOptions() {
   });
 }
 
-function loadDonors() {
-  try {
-    const savedValue = localStorage.getItem(STORAGE_KEY);
-    if (!savedValue) {
-      return [];
-    }
-
-    const parsed = JSON.parse(savedValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .map((donor) => ({
-        id: normalizeText(donor?.id) || createId(),
-        name: normalizeText(donor?.name),
-        bloodType: normalizeBloodType(donor?.bloodType),
-        phone: normalizeText(donor?.phone),
-        city: normalizeText(donor?.city),
-        address: normalizeText(donor?.address),
-        donationDate: normalizeDateValue(donor?.donationDate || donor?.createdAt),
-        createdAt: normalizeText(donor?.createdAt),
-        ownerName: normalizeText(donor?.ownerName),
-        ownerPhone: normalizeText(donor?.ownerPhone),
-        ownerPhoneKey: normalizePhone(donor?.ownerPhoneKey || donor?.ownerPhone),
-      }))
-      .filter((donor) =>
-        donor.name &&
-        BLOOD_TYPES.includes(donor.bloodType) &&
-        donor.phone &&
-        donor.city &&
-        donor.address &&
-        donor.donationDate,
-      );
-  } catch {
-    return [];
-  }
-}
-
-function clearExistingSavedDataOnce() {
-  if (localStorage.getItem(DATA_RESET_KEY) === DATA_RESET_VERSION) {
-    return;
-  }
-
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(HOSPITAL_STORAGE_KEY);
-  localStorage.removeItem(USER_STORAGE_KEY);
-  localStorage.setItem(DATA_RESET_KEY, DATA_RESET_VERSION);
-  currentUser = null;
-  donors = [];
-  hospitalInventory = loadHospitalInventory();
-}
-
 function loadCurrentUser() {
   try {
     const savedValue = localStorage.getItem(USER_STORAGE_KEY);
@@ -511,47 +475,32 @@ function loadCurrentUser() {
   }
 }
 
-function loadHospitalInventory() {
-  const baseInventory = HOSPITALS.map((hospital) => ({
+function loadDefaultHospitalInventory() {
+  return HOSPITALS.map((hospital) => ({
     ...hospital,
     availableTypes: [...hospital.availableTypes],
   }));
-
-  try {
-    const savedValue = localStorage.getItem(HOSPITAL_STORAGE_KEY);
-    if (!savedValue) {
-      return baseInventory;
-    }
-
-    const savedInventory = JSON.parse(savedValue);
-    if (!Array.isArray(savedInventory)) {
-      return baseInventory;
-    }
-
-    return baseInventory.map((hospital) => {
-      const savedHospital = savedInventory.find((entry) => entry.name === hospital.name);
-      const savedTypes = Array.isArray(savedHospital?.availableTypes)
-        ? savedHospital.availableTypes.filter((type) => BLOOD_TYPES.includes(type))
-        : hospital.availableTypes;
-
-      return {
-        ...hospital,
-        availableTypes: [...new Set(savedTypes)].sort(
-          (first, second) => BLOOD_TYPES.indexOf(first) - BLOOD_TYPES.indexOf(second),
-        ),
-      };
-    });
-  } catch {
-    return baseInventory;
-  }
 }
 
-function persistDonors() {
+async function initializeBackendData() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(donors));
-    return true;
-  } catch {
-    return false;
+    const [donorResult, hospitalResult] = await Promise.all([
+      apiRequest("/api/donors"),
+      apiRequest("/api/hospitals"),
+    ]);
+    donors = donorResult.donors;
+    hospitalInventory = hospitalResult.hospitals;
+    renderDonorTable();
+    renderHospitalTable();
+    renderBloodChart();
+    updateHeroStats();
+
+    if (lastSearchType) {
+      renderAvailability(lastSearchType);
+    }
+  } catch (error) {
+    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
   }
 }
 
@@ -564,18 +513,27 @@ function persistCurrentUser() {
   }
 }
 
-function persistHospitalInventory() {
-  const savedInventory = hospitalInventory.map(({ name, availableTypes }) => ({
-    name,
-    availableTypes,
-  }));
+async function apiRequest(url, options = {}) {
+  const fetchOptions = {
+    method: options.method || "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  };
 
-  try {
-    localStorage.setItem(HOSPITAL_STORAGE_KEY, JSON.stringify(savedInventory));
-    return true;
-  } catch {
-    return false;
+  if (options.body) {
+    fetchOptions.headers["Content-Type"] = "application/json";
+    fetchOptions.body = JSON.stringify(options.body);
   }
+
+  const response = await fetch(url, fetchOptions);
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || API_ERROR_MESSAGE);
+  }
+
+  return result;
 }
 
 function renderDonorTable() {
@@ -960,7 +918,7 @@ function startEditingDonor(donorId) {
   donatePanel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function updateDonorRecord(updatedDonor) {
+async function updateDonorRecord(updatedDonor) {
   const donorIndex = donors.findIndex((entry) => entry.id === editingDonorId);
 
   if (donorIndex === -1 || !canManageDonor(donors[donorIndex])) {
@@ -968,17 +926,25 @@ function updateDonorRecord(updatedDonor) {
     return;
   }
 
-  const previousDonors = [...donors];
-  donors[donorIndex] = {
-    ...donors[donorIndex],
-    ...updatedDonor,
-  };
+  donorSubmitButton.disabled = true;
 
-  if (!persistDonors()) {
-    donors = previousDonors;
-    showFormMessage("This browser could not update the donor. Please try again.", "error");
+  try {
+    const result = await apiRequest("/api/donors", {
+      method: "PUT",
+      body: {
+        id: editingDonorId,
+        ...updatedDonor,
+        user: currentUser,
+      },
+    });
+    donors[donorIndex] = result.donor;
+  } catch (error) {
+    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+    donorSubmitButton.disabled = false;
     return;
   }
+
+  donorSubmitButton.disabled = false;
 
   resetDonorFormState();
   renderDonorTable();
@@ -1011,7 +977,7 @@ function getDonorOwnerPhoneKey(donor) {
   return normalizePhone(donor?.phone);
 }
 
-function deleteDonor(donorId) {
+async function deleteDonor(donorId) {
   const donor = donors.find((entry) => entry.id === donorId);
 
   if (!donor || !canDeleteDonor(donor)) {
@@ -1023,12 +989,17 @@ function deleteDonor(donorId) {
     return;
   }
 
-  const previousDonors = [...donors];
-  donors = donors.filter((entry) => entry.id !== donorId);
-
-  if (!persistDonors()) {
-    donors = previousDonors;
-    showFormMessage("This browser could not delete the donor. Please try again.", "error");
+  try {
+    await apiRequest("/api/donors", {
+      method: "DELETE",
+      body: {
+        id: donorId,
+        user: currentUser,
+      },
+    });
+    donors = donors.filter((entry) => entry.id !== donorId);
+  } catch (error) {
+    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
     return;
   }
 
@@ -1061,14 +1032,6 @@ function showLoginMessage(message, tone) {
   if (tone) {
     loginMessage.classList.add(tone);
   }
-}
-
-function createId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function setDefaultDonationDate() {
@@ -1120,6 +1083,10 @@ function normalizeDateValue(value) {
 }
 
 function parseDateValue(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
   const text = normalizeText(value);
 
   if (!text) {
