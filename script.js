@@ -618,6 +618,7 @@ function shouldUseBrowserStorageFallback(error) {
   const message = String(error?.message || "").toLowerCase();
   return (
     !message ||
+    message === "[object object]" ||
     message.includes("database is not configured") ||
     message.includes("database_url") ||
     message.includes("backend is not available") ||
@@ -643,7 +644,8 @@ async function apiRequest(url, options = {}) {
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(result.error || API_ERROR_MESSAGE);
+    const errorMessage = typeof result.error === "string" ? result.error : API_ERROR_MESSAGE;
+    throw new Error(errorMessage);
   }
 
   return result;
