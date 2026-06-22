@@ -1,4 +1,5 @@
-import { getSql, initSchema, mapDonorRow } from "../lib/db.js";
+import { getSql, hasDatabaseUrl, initSchema, mapDonorRow } from "../lib/db.js";
+import { readLocalStore, updateLocalStore } from "../lib/local-store.js";
 import { handleApiError, methodNotAllowed, readBody, sendJson } from "../lib/api.js";
 import {
   BLOOD_TYPES,
@@ -14,7 +15,9 @@ import {
 
 export default async function handler(request, response) {
   try {
-    await initSchema();
+    if (hasDatabaseUrl()) {
+      await initSchema();
+    }
 
     if (request.method === "GET") {
       return listDonors(response);
@@ -39,13 +42,18 @@ export default async function handler(request, response) {
 }
 
 async function listDonors(response) {
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+    const donors = [...store.donors].sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt));
+    return sendJson(response, 200, { donors });
+  }
+
   const sql = getSql();
   const rows = await sql`SELECT * FROM donors ORDER BY created_at DESC`;
   sendJson(response, 200, { donors: rows.map(mapDonorRow) });
 }
 
 async function createDonor(request, response) {
-  const sql = getSql();
   const body = await readBody(request);
   const donor = normalizeDonorPayload(body);
   const user = normalizeUserPayload(body.user);
@@ -55,6 +63,26 @@ async function createDonor(request, response) {
     return sendJson(response, 400, { error: validationError });
   }
 
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+    const gapConflict = await getDonationGapConflict(donor.phoneKey, donor.donationDate, "", store.donors);
+
+    if (gapConflict) {
+      return sendJson(response, 409, {
+        error: `${donor.name} can donate again from ${formatDate(gapConflict.nextEligibleDate)}. Please keep a 3-month gap between donations.`,
+      });
+    }
+
+    const createdDonor = createLocalDonor(donor, user);
+    await updateLocalStore((currentStore) => ({
+      ...currentStore,
+      donors: [createdDonor, ...currentStore.donors],
+    }));
+
+    return sendJson(response, 201, { donor: createdDonor });
+  }
+
+  const sql = getSql();
   const gapConflict = await getDonationGapConflict(donor.phoneKey, donor.donationDate);
   if (gapConflict) {
     return sendJson(response, 409, {
@@ -78,7 +106,6 @@ async function createDonor(request, response) {
 }
 
 async function updateDonor(request, response) {
-  const sql = getSql();
   const body = await readBody(request);
   const donorId = normalizeText(body.id);
   const donor = normalizeDonorPayload(body);
@@ -89,6 +116,39 @@ async function updateDonor(request, response) {
     return sendJson(response, 400, { error: validationError });
   }
 
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+    const existingDonor = store.donors.find((entry) => entry.id === donorId);
+
+    if (!existingDonor) {
+      return sendJson(response, 404, { error: "Donor record was not found." });
+    }
+
+    if (!phoneKeysMatch(existingDonor.ownerPhoneKey, user.phoneKey)) {
+      return sendJson(response, 403, { error: "You can only edit the donor record registered with your phone number." });
+    }
+
+    const gapConflict = await getDonationGapConflict(donor.phoneKey, donor.donationDate, donorId, store.donors);
+    if (gapConflict) {
+      return sendJson(response, 409, {
+        error: `${donor.name} can donate again from ${formatDate(gapConflict.nextEligibleDate)}. Please keep a 3-month gap between donations.`,
+      });
+    }
+
+    const updatedDonor = {
+      ...existingDonor,
+      ...donor,
+      updatedAt: new Date().toISOString(),
+    };
+    await updateLocalStore((currentStore) => ({
+      ...currentStore,
+      donors: currentStore.donors.map((entry) => (entry.id === donorId ? updatedDonor : entry)),
+    }));
+
+    return sendJson(response, 200, { donor: updatedDonor });
+  }
+
+  const sql = getSql();
   const [existingDonor] = await sql`SELECT * FROM donors WHERE id = ${donorId} LIMIT 1`;
   if (!existingDonor) {
     return sendJson(response, 404, { error: "Donor record was not found." });
@@ -124,7 +184,6 @@ async function updateDonor(request, response) {
 }
 
 async function deleteDonor(request, response) {
-  const sql = getSql();
   const body = await readBody(request);
   const donorId = normalizeText(body.id);
   const user = normalizeUserPayload(body.user);
@@ -134,6 +193,27 @@ async function deleteDonor(request, response) {
     return sendJson(response, 400, { error: validationError });
   }
 
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+    const existingDonor = store.donors.find((entry) => entry.id === donorId);
+
+    if (!existingDonor) {
+      return sendJson(response, 404, { error: "Donor record was not found." });
+    }
+
+    if (!phoneKeysMatch(existingDonor.ownerPhoneKey, user.phoneKey)) {
+      return sendJson(response, 403, { error: "You can only delete the donor record registered with your phone number." });
+    }
+
+    await updateLocalStore((currentStore) => ({
+      ...currentStore,
+      donors: currentStore.donors.filter((entry) => entry.id !== donorId),
+    }));
+
+    return sendJson(response, 200, { donor: existingDonor });
+  }
+
+  const sql = getSql();
   const [existingDonor] = await sql`SELECT * FROM donors WHERE id = ${donorId} LIMIT 1`;
   if (!existingDonor) {
     return sendJson(response, 404, { error: "Donor record was not found." });
@@ -147,7 +227,17 @@ async function deleteDonor(request, response) {
   sendJson(response, 200, { donor: mapDonorRow(existingDonor) });
 }
 
-async function getDonationGapConflict(phoneKey, donationDate, ignoredDonorId = "") {
+async function getDonationGapConflict(phoneKey, donationDate, ignoredDonorId = "", localDonors = null) {
+  if (localDonors) {
+    const latestDonation = localDonors
+      .filter((donor) => donor.id !== ignoredDonorId && phoneKeysMatch(donor.phoneKey, phoneKey))
+      .map((donor) => parseDateValue(donor.donationDate))
+      .filter(Boolean)
+      .sort((first, second) => second.getTime() - first.getTime())[0];
+
+    return getGapConflictFromLatestDonation(latestDonation, donationDate);
+  }
+
   const sql = getSql();
   const rows = ignoredDonorId
     ? await sql`
@@ -165,7 +255,10 @@ async function getDonationGapConflict(phoneKey, donationDate, ignoredDonorId = "
         LIMIT 1
       `;
 
-  const latestDonation = parseDateValue(rows[0]?.donation_date);
+  return getGapConflictFromLatestDonation(parseDateValue(rows[0]?.donation_date), donationDate);
+}
+
+function getGapConflictFromLatestDonation(latestDonation, donationDate) {
   if (!latestDonation) {
     return null;
   }
@@ -173,6 +266,20 @@ async function getDonationGapConflict(phoneKey, donationDate, ignoredDonorId = "
   const submittedDate = parseDateValue(donationDate);
   const nextEligibleDate = addMonths(latestDonation, 3);
   return submittedDate.getTime() < nextEligibleDate.getTime() ? { latestDonation, nextEligibleDate } : null;
+}
+
+function createLocalDonor(donor, user) {
+  const createdAt = new Date().toISOString();
+
+  return {
+    id: createId(),
+    ...donor,
+    createdAt,
+    updatedAt: createdAt,
+    ownerName: user.username,
+    ownerPhone: user.phone,
+    ownerPhoneKey: user.phoneKey,
+  };
 }
 
 function normalizeDonorPayload(body) {

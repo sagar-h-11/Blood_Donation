@@ -27,7 +27,7 @@ PulseLink is a blood donation directory for saving donor records, checking blood
    npm install
    ```
 
-2. Create a Neon Postgres database from the Vercel Marketplace or Neon dashboard.
+2. Create a Neon Postgres database from the Vercel Marketplace or Neon dashboard for production-style persistence.
 
 3. Add the database connection string to `.env.local`:
 
@@ -48,6 +48,8 @@ PulseLink is a blood donation directory for saving donor records, checking blood
    ```
 
 6. Open the local URL printed by Vercel, usually `http://localhost:3000`.
+
+If `DATABASE_URL` is not set during local development, the API automatically saves donor and hospital changes to `.data/pulselink.json`. This keeps the app usable locally, but deployed production should still use Neon/Postgres through `DATABASE_URL`.
 
 ## Deployment
 

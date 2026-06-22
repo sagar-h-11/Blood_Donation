@@ -1,10 +1,13 @@
-import { getSql, initSchema } from "../lib/db.js";
+import { getSql, hasDatabaseUrl, initSchema } from "../lib/db.js";
 import { handleApiError, methodNotAllowed, readBody, sendJson } from "../lib/api.js";
+import { readLocalStore, updateLocalStore } from "../lib/local-store.js";
 import { BLOOD_TYPES, HOSPITALS, normalizeBloodType, normalizeText, sortBloodTypes } from "../lib/shared.js";
 
 export default async function handler(request, response) {
   try {
-    await initSchema();
+    if (hasDatabaseUrl()) {
+      await initSchema();
+    }
 
     if (request.method === "GET") {
       return listHospitals(response);
@@ -25,7 +28,6 @@ async function listHospitals(response) {
 }
 
 async function updateHospitalInventory(request, response) {
-  const sql = getSql();
   const body = await readBody(request);
   const hospitalName = normalizeText(body.hospitalName);
   const bloodType = normalizeBloodType(body.bloodType);
@@ -44,6 +46,30 @@ async function updateHospitalInventory(request, response) {
     return sendJson(response, 400, { error: "Hospital action must be add or remove." });
   }
 
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+    const savedHospital = store.hospitalInventory.find((entry) => entry.hospitalName === hospitalName);
+    const currentTypes = Array.isArray(savedHospital?.availableTypes)
+      ? savedHospital.availableTypes
+      : baseHospital.availableTypes;
+    const nextTypes = action === "add"
+      ? sortBloodTypes([...currentTypes, bloodType])
+      : sortBloodTypes(currentTypes.filter((type) => type !== bloodType));
+
+    await updateLocalStore((currentStore) => ({
+      ...currentStore,
+      hospitalInventory: [
+        ...currentStore.hospitalInventory.filter((entry) => entry.hospitalName !== hospitalName),
+        { hospitalName, availableTypes: nextTypes, updatedAt: new Date().toISOString() },
+      ],
+    }));
+
+    const hospitals = await getMergedHospitalInventory();
+    const hospital = hospitals.find((entry) => entry.name === hospitalName);
+    return sendJson(response, 200, { hospital, hospitals });
+  }
+
+  const sql = getSql();
   const [savedHospital] = await sql`
     SELECT available_types
     FROM hospital_inventory
@@ -71,6 +97,22 @@ async function updateHospitalInventory(request, response) {
 }
 
 async function getMergedHospitalInventory() {
+  if (!hasDatabaseUrl()) {
+    const store = await readLocalStore();
+
+    return HOSPITALS.map((hospital) => {
+      const savedHospital = store.hospitalInventory.find((entry) => entry.hospitalName === hospital.name);
+      const availableTypes = Array.isArray(savedHospital?.availableTypes)
+        ? sortBloodTypes(savedHospital.availableTypes)
+        : [...hospital.availableTypes];
+
+      return {
+        ...hospital,
+        availableTypes,
+      };
+    });
+  }
+
   const sql = getSql();
   const savedInventory = await sql`SELECT hospital_name, available_types FROM hospital_inventory`;
 
