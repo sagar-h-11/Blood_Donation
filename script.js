@@ -1,5 +1,7 @@
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const USER_STORAGE_KEY = "pulse-link-user";
+const LOCAL_DONORS_STORAGE_KEY = "pulse-link-local-donors";
+const LOCAL_HOSPITALS_STORAGE_KEY = "pulse-link-local-hospitals";
 const HOSPITALS = [
   {
     name: "KLES Dr. Prabhakar Kore Hospital & MRC",
@@ -218,9 +220,21 @@ donorForm.addEventListener("submit", async (event) => {
 
     donors.unshift(result.donor);
   } catch (error) {
-    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
-    donorSubmitButton.disabled = false;
-    return;
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+      donorSubmitButton.disabled = false;
+      return;
+    }
+
+    const savedDonor = createLocalDonorRecord(donor);
+    donors.unshift(savedDonor);
+
+    if (!persistLocalDonors()) {
+      donors = donors.filter((entry) => entry.id !== savedDonor.id);
+      showFormMessage("This browser could not save donor details. Please try again.", "error");
+      donorSubmitButton.disabled = false;
+      return;
+    }
   }
 
   donorSubmitButton.disabled = false;
@@ -281,8 +295,16 @@ hospitalForm.addEventListener("submit", async (event) => {
     });
     hospitalInventory = result.hospitals;
   } catch (error) {
-    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
-    return;
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
+      return;
+    }
+
+    hospitalInventory = updateLocalHospitalBloodType(hospitalName, bloodType, "add");
+    if (!persistLocalHospitalInventory()) {
+      showHospitalMessage("This browser could not save hospital details. Please try again.", "error");
+      return;
+    }
   }
 
   renderHospitalTable();
@@ -321,9 +343,18 @@ hospitalTableBody.addEventListener("click", async (event) => {
     });
     hospitalInventory = result.hospitals;
   } catch (error) {
-    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
-    button.disabled = false;
-    return;
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
+      button.disabled = false;
+      return;
+    }
+
+    hospitalInventory = updateLocalHospitalBloodType(hospitalName, bloodType, "remove");
+    if (!persistLocalHospitalInventory()) {
+      showHospitalMessage("This browser could not save hospital details. Please try again.", "error");
+      button.disabled = false;
+      return;
+    }
   }
 
   renderHospitalTable();
@@ -482,6 +513,42 @@ function loadDefaultHospitalInventory() {
   }));
 }
 
+function loadLocalDonors() {
+  try {
+    const savedValue = localStorage.getItem(LOCAL_DONORS_STORAGE_KEY);
+    const parsedDonors = savedValue ? JSON.parse(savedValue) : [];
+
+    return Array.isArray(parsedDonors)
+      ? parsedDonors.filter((donor) => donor?.id && donor?.name && donor?.bloodType)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadLocalHospitalInventory() {
+  try {
+    const savedValue = localStorage.getItem(LOCAL_HOSPITALS_STORAGE_KEY);
+    const parsedHospitals = savedValue ? JSON.parse(savedValue) : [];
+
+    if (!Array.isArray(parsedHospitals)) {
+      return loadDefaultHospitalInventory();
+    }
+
+    return HOSPITALS.map((hospital) => {
+      const savedHospital = parsedHospitals.find((entry) => entry?.name === hospital.name);
+      return {
+        ...hospital,
+        availableTypes: Array.isArray(savedHospital?.availableTypes)
+          ? sortBloodTypes(savedHospital.availableTypes)
+          : [...hospital.availableTypes],
+      };
+    });
+  } catch {
+    return loadDefaultHospitalInventory();
+  }
+}
+
 async function initializeBackendData() {
   try {
     const [donorResult, hospitalResult] = await Promise.all([
@@ -499,8 +566,24 @@ async function initializeBackendData() {
       renderAvailability(lastSearchType);
     }
   } catch (error) {
-    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
-    showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+      showHospitalMessage(error.message || API_ERROR_MESSAGE, "error");
+      return;
+    }
+
+    donors = loadLocalDonors();
+    hospitalInventory = loadLocalHospitalInventory();
+    renderDonorTable();
+    renderHospitalTable();
+    renderBloodChart();
+    updateHeroStats();
+    showFormMessage("", "");
+    showHospitalMessage("", "");
+
+    if (lastSearchType) {
+      renderAvailability(lastSearchType);
+    }
   }
 }
 
@@ -511,6 +594,36 @@ function persistCurrentUser() {
   } catch {
     return false;
   }
+}
+
+function persistLocalDonors() {
+  try {
+    localStorage.setItem(LOCAL_DONORS_STORAGE_KEY, JSON.stringify(donors));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function persistLocalHospitalInventory() {
+  try {
+    localStorage.setItem(LOCAL_HOSPITALS_STORAGE_KEY, JSON.stringify(hospitalInventory));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function shouldUseBrowserStorageFallback(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    !message ||
+    message.includes("database is not configured") ||
+    message.includes("database_url") ||
+    message.includes("backend is not available") ||
+    message.includes("server error") ||
+    message.includes("failed to fetch")
+  );
 }
 
 async function apiRequest(url, options = {}) {
@@ -939,9 +1052,24 @@ async function updateDonorRecord(updatedDonor) {
     });
     donors[donorIndex] = result.donor;
   } catch (error) {
-    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
-    donorSubmitButton.disabled = false;
-    return;
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+      donorSubmitButton.disabled = false;
+      return;
+    }
+
+    donors[donorIndex] = {
+      ...donors[donorIndex],
+      ...updatedDonor,
+      phoneKey: normalizePhone(updatedDonor.phone),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!persistLocalDonors()) {
+      showFormMessage("This browser could not save donor details. Please try again.", "error");
+      donorSubmitButton.disabled = false;
+      return;
+    }
   }
 
   donorSubmitButton.disabled = false;
@@ -977,6 +1105,38 @@ function getDonorOwnerPhoneKey(donor) {
   return normalizePhone(donor?.phone);
 }
 
+function createLocalDonorRecord(donor) {
+  const createdAt = new Date().toISOString();
+
+  return {
+    id: createId(),
+    ...donor,
+    phoneKey: normalizePhone(donor.phone),
+    createdAt,
+    updatedAt: createdAt,
+    ownerName: currentUser.username,
+    ownerPhone: currentUser.phone,
+    ownerPhoneKey: currentUser.phoneKey,
+  };
+}
+
+function updateLocalHospitalBloodType(hospitalName, bloodType, action) {
+  return hospitalInventory.map((hospital) => {
+    if (hospital.name !== hospitalName) {
+      return hospital;
+    }
+
+    const availableTypes = action === "add"
+      ? sortBloodTypes([...hospital.availableTypes, bloodType])
+      : sortBloodTypes(hospital.availableTypes.filter((type) => type !== bloodType));
+
+    return {
+      ...hospital,
+      availableTypes,
+    };
+  });
+}
+
 async function deleteDonor(donorId) {
   const donor = donors.find((entry) => entry.id === donorId);
 
@@ -999,8 +1159,17 @@ async function deleteDonor(donorId) {
     });
     donors = donors.filter((entry) => entry.id !== donorId);
   } catch (error) {
-    showFormMessage(error.message || API_ERROR_MESSAGE, "error");
-    return;
+    if (!shouldUseBrowserStorageFallback(error)) {
+      showFormMessage(error.message || API_ERROR_MESSAGE, "error");
+      return;
+    }
+
+    donors = donors.filter((entry) => entry.id !== donorId);
+    if (!persistLocalDonors()) {
+      donors.push(donor);
+      showFormMessage("This browser could not delete donor details. Please try again.", "error");
+      return;
+    }
   }
 
   renderDonorTable();
@@ -1138,6 +1307,20 @@ function normalizeBloodType(value) {
 
 function normalizePhone(value) {
   return normalizeText(value).replace(/[^\d]/g, "");
+}
+
+function sortBloodTypes(types) {
+  return [...new Set(types.filter((type) => BLOOD_TYPES.includes(type)))].sort(
+    (first, second) => BLOOD_TYPES.indexOf(first) - BLOOD_TYPES.indexOf(second),
+  );
+}
+
+function createId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function phoneKeysMatch(firstPhone, secondPhone) {
